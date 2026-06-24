@@ -1,0 +1,1022 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>発注書PDF分割</title>
+  <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+  <style>
+    :root {
+      --ink: #17202a;
+      --muted: #687386;
+      --line: #d9dee8;
+      --paper: #ffffff;
+      --page: #f5f7fb;
+      --accent: #176b87;
+      --accent-2: #b85c38;
+      --ok: #26734d;
+      --warn: #9b5a00;
+      --shadow: 0 8px 24px rgba(30, 44, 64, .10);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background: var(--page);
+      font-family: "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(255, 255, 255, .96);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(8px);
+    }
+
+    .topbar {
+      max-width: 1680px;
+      margin: 0 auto;
+      padding: 14px 20px;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 21px;
+      line-height: 1.2;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    button, .file-button {
+      min-height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 8px 13px;
+      font: inherit;
+      font-weight: 700;
+      color: var(--ink);
+      background: var(--paper);
+      cursor: pointer;
+      box-shadow: 0 1px 0 rgba(0,0,0,.03);
+    }
+
+    button.primary {
+      color: white;
+      border-color: var(--accent);
+      background: var(--accent);
+    }
+
+    button.secondary {
+      color: white;
+      border-color: var(--accent-2);
+      background: var(--accent-2);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: .48;
+    }
+
+    input[type="file"] {
+      position: absolute;
+      inline-size: 1px;
+      block-size: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    main {
+      max-width: 1680px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    .status {
+      min-height: 38px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--paper);
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .status strong { color: var(--ink); }
+    .status .ok { color: var(--ok); }
+    .status .warn { color: var(--warn); }
+
+    .empty {
+      min-height: 58vh;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: var(--muted);
+      border: 1px dashed #bac4d4;
+      border-radius: 8px;
+      background: var(--paper);
+      padding: 34px;
+    }
+
+    .empty b {
+      display: block;
+      color: var(--ink);
+      font-size: 24px;
+      margin-bottom: 10px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+      gap: 16px;
+    }
+
+    .page-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+
+    .preview {
+      background: #e9edf4;
+      aspect-ratio: 1.414 / 1;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      border-bottom: 1px solid var(--line);
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: white;
+    }
+
+    .fields {
+      padding: 13px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .row-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .field-row {
+      display: grid;
+      grid-template-columns: minmax(180px, 1.2fr) minmax(88px, .7fr) minmax(90px, 1fr);
+      gap: 8px;
+    }
+
+    .product-controls {
+      display: grid;
+      grid-template-columns: minmax(100px, 1fr) 68px;
+      gap: 6px;
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    input[type="text"],
+    select {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 7px 9px;
+      color: var(--ink);
+      font: inherit;
+      font-size: 15px;
+      background: #fff;
+    }
+
+    .filename {
+      min-height: 36px;
+      padding: 8px 9px;
+      border-radius: 7px;
+      background: #f4f7f8;
+      color: var(--accent);
+      font-size: 14px;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: rgba(23, 32, 42, .58);
+    }
+
+    .modal[hidden] {
+      display: none;
+    }
+
+    .modal-panel {
+      width: min(1500px, 96vw);
+      max-height: 92vh;
+      overflow: auto;
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .28);
+    }
+
+    .modal-head,
+    .modal-actions {
+      position: sticky;
+      z-index: 1;
+      background: var(--paper);
+      padding: 16px 20px;
+    }
+
+    .modal-head {
+      top: 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .modal-head h2 {
+      margin: 0 0 5px;
+      font-size: 20px;
+    }
+
+    .modal-head p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .duplicate-groups {
+      display: grid;
+      gap: 22px;
+      padding: 20px;
+    }
+
+    .duplicate-group h3 {
+      margin: 0 0 9px;
+      color: var(--accent);
+      font-size: 15px;
+      overflow-wrap: anywhere;
+    }
+
+    .duplicate-options {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 12px;
+    }
+
+    .duplicate-option {
+      display: grid;
+      grid-template-columns: 22px 1fr;
+      gap: 10px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--ink);
+      cursor: pointer;
+    }
+
+    .duplicate-option:has(input:checked) {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+
+    .duplicate-option input {
+      width: 18px;
+      height: 18px;
+      margin: 3px 0 0;
+      accent-color: var(--accent);
+    }
+
+    .duplicate-option img {
+      width: 100%;
+      aspect-ratio: 1.414 / 1;
+      object-fit: fill;
+      display: block;
+      border: 1px solid var(--line);
+      background: white;
+    }
+
+    .duplicate-page {
+      display: block;
+      margin-top: 7px;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .modal-actions {
+      bottom: 0;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      border-top: 1px solid var(--line);
+    }
+
+    @media (max-width: 720px) {
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .grid { grid-template-columns: 1fr; }
+      .field-row { grid-template-columns: 1fr; }
+
+      .actions {
+        justify-content: flex-start;
+      }
+
+      main { padding: 14px; }
+      .modal { padding: 10px; }
+      .duplicate-options { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="topbar">
+      <h1>発注書PDF分割</h1>
+      <div class="actions">
+        <label class="file-button" for="pdfFile">PDFを選ぶ</label>
+        <input id="pdfFile" type="file" accept="application/pdf" />
+        <button id="ocrBtn" type="button" disabled>画像PDFをOCR読取</button>
+        <button id="saveFolderBtn" class="primary" type="button" disabled>フォルダへ一括保存</button>
+        <button id="zipBtn" class="secondary" type="button" disabled>ZIPで保存</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div id="status" class="status">
+      <span>PDFを選ぶとページごとにプレビューされます。</span>
+      <span></span>
+    </div>
+    <section id="pages" class="grid" hidden></section>
+    <section id="empty" class="empty">
+      <div>
+        <b>PDFをここから分割できます</b>
+        <span>自社発注書形式の品番欄と発注書No欄だけをOCRして保存します。</span>
+      </div>
+    </section>
+  </main>
+
+  <div id="duplicateModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="duplicateTitle" hidden>
+    <div class="modal-panel">
+      <div class="modal-head">
+        <h2 id="duplicateTitle">同じファイル名があります</h2>
+        <p>プレビューを比較し、保存するページにチェックを入れてください。複数選ぶと末尾に (2)、(3) が付きます。</p>
+      </div>
+      <div id="duplicateGroups" class="duplicate-groups"></div>
+      <div class="modal-actions">
+        <button id="duplicateCancelBtn" type="button">キャンセル</button>
+        <button id="duplicateConfirmBtn" class="primary" type="button">選択したページを保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs';
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
+
+    const fileInput = document.getElementById('pdfFile');
+    const ocrBtn = document.getElementById('ocrBtn');
+    const saveFolderBtn = document.getElementById('saveFolderBtn');
+    const zipBtn = document.getElementById('zipBtn');
+    const pagesEl = document.getElementById('pages');
+    const emptyEl = document.getElementById('empty');
+    const statusEl = document.getElementById('status');
+    const duplicateModal = document.getElementById('duplicateModal');
+    const duplicateGroupsEl = document.getElementById('duplicateGroups');
+    const duplicateCancelBtn = document.getElementById('duplicateCancelBtn');
+    const duplicateConfirmBtn = document.getElementById('duplicateConfirmBtn');
+
+    let sourceBytes = null;
+    let pdfDoc = null;
+    let pageCount = 0;
+    let extractedTextByPage = [];
+    let extractedDataByPage = [];
+    let ocrWorker = null;
+
+    const invalidFileChars = /[\\/:*?"<>|]/g;
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      }[char]));
+    }
+
+    function setStatus(message, detail = '', kind = '') {
+      statusEl.innerHTML = `<span>${escapeHtml(message)}</span><span class="${kind}">${escapeHtml(detail)}</span>`;
+    }
+
+    function cleanNamePart(value) {
+      return value.trim().replace(invalidFileChars, '').replace(/\s+/g, '');
+    }
+
+    function getPageRows() {
+      return [...pagesEl.querySelectorAll('.page-card')].map(card => ({
+        index: Number(card.dataset.index),
+        product: card.querySelector('[data-field="product"]').value,
+        productSuffix: card.querySelector('[data-field="product-suffix"]').value,
+        orderPrefix: card.querySelector('[data-field="order-prefix"]').value,
+        orderNumber: card.querySelector('[data-field="order-number"]').value,
+        fileNameEl: card.querySelector('[data-role="filename"]'),
+      }));
+    }
+
+    function buildOrder(prefix, number) {
+      return `${prefix}${cleanNamePart(number)}`;
+    }
+
+    function buildProduct(product, suffix) {
+      return `${cleanNamePart(product)}${suffix === 'a' ? 'a' : ''}`;
+    }
+
+    function makeFileName(product, productSuffix, orderPrefix, orderNumber, index) {
+      const base = `${buildProduct(product, productSuffix)}${buildOrder(orderPrefix, orderNumber)}`;
+      return base ? `${base}.pdf` : `page-${String(index + 1).padStart(2, '0')}.pdf`;
+    }
+
+    function updateFileNames() {
+      getPageRows().forEach(row => {
+        row.fileNameEl.textContent = makeFileName(row.product, row.productSuffix, row.orderPrefix, row.orderNumber, row.index);
+      });
+    }
+
+    async function renderPreview(page, canvas) {
+      const viewport = page.getViewport({ scale: 1.7 });
+      const context = canvas.getContext('2d');
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height / 2);
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: context, viewport }).promise;
+    }
+
+    async function renderFullPageCanvas(page) {
+      const viewport = page.getViewport({ scale: 3.25 });
+      const full = document.createElement('canvas');
+      const fullContext = full.getContext('2d', { willReadFrequently: true });
+      full.width = Math.floor(viewport.width);
+      full.height = Math.floor(viewport.height);
+      await page.render({ canvasContext: fullContext, viewport }).promise;
+      return full;
+    }
+
+    function cropAndPrepare(source, rect, zoom = 2.2, threshold = 178) {
+      const crop = document.createElement('canvas');
+      const sourceX = Math.floor(source.width * rect.x);
+      const sourceY = Math.floor(source.height * rect.y);
+      const sourceW = Math.floor(source.width * rect.w);
+      const sourceH = Math.floor(source.height * rect.h);
+      crop.width = Math.max(1, Math.floor(sourceW * zoom));
+      crop.height = Math.max(1, Math.floor(sourceH * zoom));
+
+      const cropContext = crop.getContext('2d', { willReadFrequently: true });
+      cropContext.fillStyle = '#fff';
+      cropContext.fillRect(0, 0, crop.width, crop.height);
+      cropContext.imageSmoothingEnabled = false;
+      cropContext.drawImage(source, sourceX, sourceY, sourceW, sourceH, 0, 0, crop.width, crop.height);
+
+      const image = cropContext.getImageData(0, 0, crop.width, crop.height);
+      const data = image.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const gray = (data[i] * 0.299) + (data[i + 1] * 0.587) + (data[i + 2] * 0.114);
+        const value = gray < threshold ? 0 : 255;
+        data[i] = value;
+        data[i + 1] = value;
+        data[i + 2] = value;
+      }
+      cropContext.putImageData(image, 0, 0);
+      return crop;
+    }
+
+    function createCard(index) {
+      const card = document.createElement('article');
+      card.className = 'page-card';
+      card.dataset.index = String(index);
+      card.innerHTML = `
+        <div class="preview"><canvas aria-label="${index + 1}ページ目のプレビュー"></canvas></div>
+        <div class="fields">
+          <div class="row-head">
+            <span>${index + 1}ページ目</span>
+            <span data-role="text-status">文字確認中</span>
+          </div>
+          <div class="field-row">
+            <label>品番
+              <span class="product-controls">
+                <input type="text" data-field="product" placeholder="pm150" autocomplete="off">
+                <select data-field="product-suffix" aria-label="品番末尾">
+                  <option value="">なし</option>
+                  <option value="a">a</option>
+                </select>
+              </span>
+            </label>
+            <label>文言
+              <select data-field="order-prefix">
+                <option value="">なし</option>
+                <option value="ﾘﾋﾟｰﾄ">ﾘﾋﾟｰﾄ</option>
+                <option value="新規">新規</option>
+                <option value="追加">追加</option>
+              </select>
+            </label>
+            <label>番号
+              <input type="text" data-field="order-number" placeholder="①-2" autocomplete="off">
+            </label>
+          </div>
+          <div class="filename" data-role="filename">page-${String(index + 1).padStart(2, '0')}.pdf</div>
+          <div class="hint">品番末尾にaが付く場合は、品番横で「a」を選んでください。</div>
+        </div>
+      `;
+      card.addEventListener('input', updateFileNames);
+      card.addEventListener('change', updateFileNames);
+      return card;
+    }
+
+    async function extractText(page) {
+      const content = await page.getTextContent();
+      return content.items.map(item => item.str).join('\n');
+    }
+
+    function normalizeOcrText(text) {
+      return text
+        .replace(/[Ａ-Ｚａ-ｚ０-９]/g, char => String.fromCharCode(char.charCodeAt(0) - 0xfee0))
+        .replace(/[‐‑‒–—―ｰ−]/g, '-')
+        .replace(/[|｜]/g, 'I')
+        .replace(/[Ｓ]/g, 'S');
+    }
+
+    function toHalfWidthKana(value) {
+      const map = {
+        'リ': 'ﾘ', 'ピ': 'ﾋﾟ', 'ビ': 'ﾋﾞ', 'ヒ': 'ﾋ', 'ー': 'ｰ', 'ト': 'ﾄ',
+        '初': '初', '回': '回', '目': '目',
+      };
+      return value.replace(/[リピビヒート初回目]/g, char => map[char] || char);
+    }
+
+    function normalizeOrder(value) {
+      let text = normalizeOcrText(value)
+        .replace(/[＋+]/g, '')
+        .replace(/[ 　]+/g, '')
+        .replace(/繰返|繰り返し|リピ-ト|リビート|リピ一ト|リビー卜|リピ一卜|リヒート|リビーﾄ|リピｰト/g, 'リピート')
+        .replace(/初\s*回/g, '初回');
+
+      const repeatCount = text.match(/リピート([0-9]+)回目[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]?/);
+      if (repeatCount) return toHalfWidthKana(repeatCount[0]);
+
+      const repeatCircle = text.match(/リピート[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳](?:-\d+)?/);
+      if (repeatCircle) return toHalfWidthKana(repeatCircle[0]);
+
+      if (/初回|新規/.test(text)) return text.includes('新規') ? '新規' : '初回';
+      return toHalfWidthKana(text);
+    }
+
+    function cleanOcrToken(value) {
+      return normalizeOcrText(value)
+        .replace(/[^\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}A-Za-z0-9①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳()（）\-.ーｰ]/gu, '')
+        .trim();
+    }
+
+    function pickProductNumber(text) {
+      const compact = normalizeOcrText(text)
+        .replace(/[Oo]/g, '0')
+        .replace(/[Il|]/g, '1')
+        .replace(/[^\d]/g, '');
+      const match = compact.match(/\d{3}/) || compact.match(/\d{4}/);
+      return match ? match[0] : '';
+    }
+
+    function pickOrderParts(text) {
+      const compact = cleanOcrToken(text)
+        .replace(/管理番号|発注書?No\.?/gi, '')
+        .replace(/[ーｰ−―‐‑‒–—]/g, '-')
+        .replace(/[Oo]/g, '0')
+        .replace(/[Il|]/g, '1')
+        .replace(/リビート|リピ-ト|リピ一ト|リビー卜|リピ一卜|リヒート|リビーﾄ|リピｰト/g, 'リピート');
+      let prefix = '';
+      if (/新規/.test(compact)) prefix = '新規';
+      else if (/追加/.test(compact)) prefix = '追加';
+      else if (/リピート|ﾘﾋﾟｰﾄ/.test(compact)) prefix = 'ﾘﾋﾟｰﾄ';
+
+      const numberMatch =
+        compact.match(/[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳](?:-\d+)*/) ||
+        compact.match(/\d+回目[①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳]?(?:-\d+)*/) ||
+        compact.match(/\d+(?:-\d+)*/);
+      return {
+        prefix,
+        number: numberMatch ? numberMatch[0] : '',
+      };
+    }
+
+    function applyOcrData(index, data) {
+      const card = pagesEl.querySelector(`.page-card[data-index="${index}"]`);
+      if (!card) return;
+      const productInput = card.querySelector('[data-field="product"]');
+      const prefixInput = card.querySelector('[data-field="order-prefix"]');
+      const numberInput = card.querySelector('[data-field="order-number"]');
+      if (data.product) productInput.value = data.product;
+      if (Object.hasOwn(data, 'orderPrefix')) prefixInput.value = data.orderPrefix;
+      if (data.orderNumber) numberInput.value = data.orderNumber;
+      card.querySelector('[data-role="text-status"]').textContent = data.product && data.orderNumber ? 'OCR済み' : '要確認';
+      updateFileNames();
+    }
+
+    async function getOcrWorker() {
+      if (ocrWorker) return ocrWorker;
+      ocrWorker = await Tesseract.createWorker('jpn+eng', 1, {
+        logger: message => {
+          if (message.status === 'recognizing text') {
+            setStatus('OCRで読み取っています。', `${Math.round(message.progress * 100)}%`, 'ok');
+          }
+        },
+      });
+      await ocrWorker.setParameters({
+        tessedit_pageseg_mode: '6',
+        preserve_interword_spaces: '1',
+      });
+      return ocrWorker;
+    }
+
+    async function recognizeField(worker, canvas, mode) {
+      if (mode === 'product') {
+        await worker.setParameters({
+          tessedit_pageseg_mode: '7',
+          tessedit_char_whitelist: '0123456789OoIl|',
+        });
+      } else {
+        await worker.setParameters({
+          tessedit_pageseg_mode: '6',
+          tessedit_char_whitelist: '',
+        });
+      }
+      const result = await worker.recognize(canvas);
+      return result.data.text || '';
+    }
+
+    function makeOrderVariants(full, rect) {
+      return [
+        cropAndPrepare(full, rect, 3.4, 168),
+        cropAndPrepare(full, rect, 3.4, 192),
+        cropAndPrepare(full, { x: rect.x - 0.012, y: rect.y - 0.006, w: rect.w + 0.065, h: rect.h + 0.014 }, 3.2, 178),
+        cropAndPrepare(full, { x: rect.x + 0.010, y: rect.y, w: rect.w + 0.020, h: rect.h }, 3.8, 184),
+        cropAndPrepare(full, { x: rect.x + 0.045, y: rect.y, w: rect.w - 0.015, h: rect.h }, 4.2, 176),
+      ];
+    }
+
+    function makeProductVariants(full, rect) {
+      return [
+        cropAndPrepare(full, rect, 4.2, 180),
+        cropAndPrepare(full, { x: rect.x + 0.055, y: rect.y, w: rect.w - 0.060, h: rect.h }, 4.8, 174),
+        cropAndPrepare(full, { x: rect.x + 0.065, y: rect.y - 0.004, w: rect.w - 0.075, h: rect.h + 0.010 }, 5.0, 190),
+      ];
+    }
+
+    function chooseBestProduct(texts) {
+      const candidates = texts.map(text => pickProductNumber(text)).filter(Boolean);
+      if (!candidates.length) return '';
+      candidates.sort((a, b) => {
+        const score = value => (value.length === 3 ? 4 : 0) + (value.length === 4 ? 2 : 0);
+        return score(b) - score(a);
+      });
+      return `pm${candidates[0]}`;
+    }
+
+    function chooseBestOrder(texts) {
+      const candidates = texts.map(text => ({
+        raw: text,
+        parts: pickOrderParts(text),
+      })).filter(item => item.parts.prefix || item.parts.number);
+      if (!candidates.length) return { prefix: '', number: '', raw: texts.join('\n') };
+      candidates.sort((a, b) => {
+        const score = parts => {
+          const hyphens = (parts.number.match(/-/g) || []).length;
+          return (parts.prefix ? 2 : 0) +
+            (parts.prefix === 'ﾘﾋﾟｰﾄ' ? 2 : 0) +
+            (parts.prefix === '新規' ? 3 : 0) +
+            (/[①②③④⑤⑥⑦⑧⑨⑩⑪⑫]/.test(parts.number) ? 3 : 0) +
+            (hyphens * 2) +
+            (parts.number.length / 5);
+        };
+        return score(b.parts) - score(a.parts);
+      });
+      return {
+        prefix: candidates[0].parts.prefix,
+        number: candidates[0].parts.number,
+        raw: candidates.map(item => item.raw).join('\n'),
+      };
+    }
+
+    async function readPageByRegions(worker, page) {
+      const full = await renderFullPageCanvas(page);
+      const regions = {
+        selfProduct: { x: 0.090, y: 0.074, w: 0.245, h: 0.048 },
+        selfOrder: { x: 0.315, y: 0.074, w: 0.230, h: 0.048 },
+      };
+
+      const productTexts = [];
+      for (const canvas of makeProductVariants(full, regions.selfProduct)) {
+        productTexts.push(await recognizeField(worker, canvas, 'product'));
+      }
+      const orderTexts = [];
+      for (const canvas of makeOrderVariants(full, regions.selfOrder)) {
+        orderTexts.push(await recognizeField(worker, canvas, 'text'));
+      }
+      const order = chooseBestOrder(orderTexts);
+
+      return {
+        format: 'self',
+        product: chooseBestProduct(productTexts),
+        orderPrefix: order.prefix,
+        orderNumber: order.number,
+        raw: [productTexts.join('\n'), order.raw].join('\n'),
+      };
+    }
+
+    async function runOcr() {
+      if (!pdfDoc) return;
+      const controls = [fileInput, ocrBtn, saveFolderBtn, zipBtn];
+      controls.forEach(control => { control.disabled = true; });
+      try {
+        const worker = await getOcrWorker();
+        for (let index = 0; index < pageCount; index += 1) {
+          setStatus('品番欄と発注書No欄をOCRで読み取っています。', `${index + 1}/${pageCount}ページ`, 'ok');
+          const page = await pdfDoc.getPage(index + 1);
+          const data = await readPageByRegions(worker, page);
+          extractedDataByPage[index] = data;
+          extractedTextByPage[index] = data.raw;
+          applyOcrData(index, data);
+        }
+        setStatus('OCR読み取りが終わりました。', 'ファイル名を確認してください。', 'ok');
+      } catch (error) {
+        setStatus('OCRで読み取れませんでした。', error.message, 'warn');
+      } finally {
+        controls.forEach(control => { control.disabled = false; });
+      }
+    }
+
+    async function loadPdf(file) {
+      sourceBytes = new Uint8Array(await file.arrayBuffer());
+      pdfDoc = await pdfjsLib.getDocument({ data: sourceBytes.slice() }).promise;
+      pageCount = pdfDoc.numPages;
+      extractedTextByPage = Array(pageCount).fill('');
+      extractedDataByPage = Array(pageCount).fill(null);
+      pagesEl.innerHTML = '';
+      emptyEl.hidden = true;
+      pagesEl.hidden = false;
+      setStatus(`${file.name} を読み込みました。`, `${pageCount}ページ`, 'ok');
+
+      for (let index = 0; index < pageCount; index += 1) {
+        const card = createCard(index);
+        pagesEl.appendChild(card);
+        const page = await pdfDoc.getPage(index + 1);
+        await renderPreview(page, card.querySelector('canvas'));
+        const text = await extractText(page);
+        extractedTextByPage[index] = text;
+        const textStatus = card.querySelector('[data-role="text-status"]');
+        textStatus.textContent = text.trim() ? '文字あり' : 'OCR待ち';
+      }
+
+      ocrBtn.disabled = false;
+      saveFolderBtn.disabled = false;
+      zipBtn.disabled = false;
+      updateFileNames();
+    }
+
+    async function splitOnePage(index) {
+      const srcPdf = await PDFLib.PDFDocument.load(sourceBytes);
+      const outPdf = await PDFLib.PDFDocument.create();
+      const [page] = await outPdf.copyPages(srcPdf, [index]);
+      outPdf.addPage(page);
+      return await outPdf.save();
+    }
+
+    function groupRowsByName(rows) {
+      const groups = new Map();
+      rows.forEach(row => {
+        const name = makeFileName(row.product, row.productSuffix, row.orderPrefix, row.orderNumber, row.index);
+        if (!groups.has(name)) groups.set(name, []);
+        groups.get(name).push({ ...row, baseName: name });
+      });
+      return groups;
+    }
+
+    function addCopyNumber(name, number) {
+      return name.toLowerCase().endsWith('.pdf')
+        ? `${name.slice(0, -4)}(${number}).pdf`
+        : `${name}(${number})`;
+    }
+
+    function openDuplicateDialog(duplicateGroups) {
+      duplicateGroupsEl.replaceChildren();
+
+      duplicateGroups.forEach(group => {
+        const section = document.createElement('section');
+        section.className = 'duplicate-group';
+
+        const title = document.createElement('h3');
+        title.textContent = group[0].baseName;
+        section.appendChild(title);
+
+        const options = document.createElement('div');
+        options.className = 'duplicate-options';
+
+        group.forEach(row => {
+          const option = document.createElement('label');
+          option.className = 'duplicate-option';
+
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.value = String(row.index);
+          checkbox.checked = true;
+          checkbox.setAttribute('aria-label', `${row.index + 1}ページ目を保存`);
+
+          const content = document.createElement('span');
+          const image = document.createElement('img');
+          const sourceCanvas = pagesEl.querySelector(`.page-card[data-index="${row.index}"] canvas`);
+          image.src = sourceCanvas.toDataURL('image/jpeg', .9);
+          image.alt = `${row.index + 1}ページ目の上半分`;
+
+          const pageLabel = document.createElement('span');
+          pageLabel.className = 'duplicate-page';
+          pageLabel.textContent = `${row.index + 1}ページ目`;
+
+          content.append(image, pageLabel);
+          option.append(checkbox, content);
+          options.appendChild(option);
+        });
+
+        section.appendChild(options);
+        duplicateGroupsEl.appendChild(section);
+      });
+
+      duplicateModal.hidden = false;
+      duplicateConfirmBtn.focus();
+
+      return new Promise(resolve => {
+        const finish = value => {
+          duplicateModal.hidden = true;
+          document.removeEventListener('keydown', handleKeydown);
+          resolve(value);
+        };
+        const handleKeydown = event => {
+          if (event.key === 'Escape') finish(null);
+        };
+
+        duplicateCancelBtn.onclick = () => finish(null);
+        duplicateConfirmBtn.onclick = () => {
+          const selected = new Set(
+            [...duplicateGroupsEl.querySelectorAll('input:checked')].map(input => Number(input.value))
+          );
+          finish(selected);
+        };
+        duplicateModal.onclick = event => {
+          if (event.target === duplicateModal) finish(null);
+        };
+        document.addEventListener('keydown', handleKeydown);
+      });
+    }
+
+    async function prepareRowsForSave() {
+      const rows = getPageRows();
+      const groups = groupRowsByName(rows);
+      const duplicateGroups = [...groups.values()].filter(group => group.length > 1);
+      let selectedDuplicates = null;
+
+      if (duplicateGroups.length) {
+        selectedDuplicates = await openDuplicateDialog(duplicateGroups);
+        if (selectedDuplicates === null) return null;
+      }
+
+      const includedRows = rows.filter(row => {
+        const name = makeFileName(row.product, row.productSuffix, row.orderPrefix, row.orderNumber, row.index);
+        const isDuplicate = groups.get(name).length > 1;
+        return !isDuplicate || selectedDuplicates.has(row.index);
+      });
+
+      const nameCounts = new Map();
+      const usedNames = new Set();
+      return includedRows.map(row => {
+        const baseName = makeFileName(row.product, row.productSuffix, row.orderPrefix, row.orderNumber, row.index);
+        let number = (nameCounts.get(baseName) || 0) + 1;
+        let saveName = number === 1 ? baseName : addCopyNumber(baseName, number);
+        while (usedNames.has(saveName)) {
+          number += 1;
+          saveName = addCopyNumber(baseName, number);
+        }
+        nameCounts.set(baseName, number);
+        usedNames.add(saveName);
+        return { ...row, saveName };
+      });
+    }
+
+    async function saveToFolder() {
+      try {
+        if (!('showDirectoryPicker' in window)) {
+          throw new Error('このブラウザではフォルダ保存が使えません。ZIP保存を使ってください。');
+        }
+        const rows = await prepareRowsForSave();
+        if (rows === null) return;
+        if (!rows.length) throw new Error('保存するページが選択されていません。');
+        const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
+        for (const row of rows) {
+          const bytes = await splitOnePage(row.index);
+          const handle = await dir.getFileHandle(row.saveName, { create: true });
+          const writable = await handle.createWritable();
+          await writable.write(bytes);
+          await writable.close();
+        }
+        setStatus('分割PDFを保存しました。', `${rows.length}ファイル`, 'ok');
+      } catch (error) {
+        setStatus('保存できませんでした。', error.message, 'warn');
+      }
+    }
+
+    async function saveZip() {
+      try {
+        const rows = await prepareRowsForSave();
+        if (rows === null) return;
+        if (!rows.length) throw new Error('保存するページが選択されていません。');
+        const zip = new JSZip();
+        for (const row of rows) {
+          const bytes = await splitOnePage(row.index);
+          zip.file(row.saveName, bytes);
+        }
+        const blob = await zip.generateAsync({ type: 'blob' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = '分割PDF.zip';
+        link.click();
+        URL.revokeObjectURL(link.href);
+        setStatus('ZIPを作成しました。', `${rows.length}ファイル`, 'ok');
+      } catch (error) {
+        setStatus('ZIPを作れませんでした。', error.message, 'warn');
+      }
+    }
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      try {
+        setStatus('PDFを読み込んでいます。', file.name);
+        await loadPdf(file);
+      } catch (error) {
+        console.error(error);
+        setStatus('PDFを読み込めませんでした。', error.message, 'warn');
+      }
+    });
+
+    ocrBtn.addEventListener('click', runOcr);
+    saveFolderBtn.addEventListener('click', saveToFolder);
+    zipBtn.addEventListener('click', saveZip);
+  </script>
+</body>
+</html>

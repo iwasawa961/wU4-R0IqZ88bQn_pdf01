@@ -1,0 +1,834 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>発注書PDF分割02</title>
+  <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <style>
+    :root {
+      --ink: #17202a;
+      --muted: #687386;
+      --line: #d9dee8;
+      --paper: #ffffff;
+      --page: #f5f7fb;
+      --accent: #176b87;
+      --accent-2: #b85c38;
+      --ok: #26734d;
+      --warn: #9b5a00;
+      --shadow: 0 8px 24px rgba(30, 44, 64, .10);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background: var(--page);
+      font-family: "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: rgba(255, 255, 255, .96);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(8px);
+    }
+
+    .topbar {
+      max-width: 1680px;
+      margin: 0 auto;
+      padding: 14px 20px;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 21px;
+      line-height: 1.2;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    button, .file-button {
+      min-height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 8px 13px;
+      font: inherit;
+      font-weight: 700;
+      color: var(--ink);
+      background: var(--paper);
+      cursor: pointer;
+      box-shadow: 0 1px 0 rgba(0,0,0,.03);
+    }
+
+    button.primary {
+      color: white;
+      border-color: var(--accent);
+      background: var(--accent);
+    }
+
+    button.secondary {
+      color: white;
+      border-color: var(--accent-2);
+      background: var(--accent-2);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: .48;
+    }
+
+    input[type="file"] {
+      position: absolute;
+      inline-size: 1px;
+      block-size: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    main {
+      max-width: 1680px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    .status {
+      min-height: 38px;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--paper);
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .status strong { color: var(--ink); }
+    .status .ok { color: var(--ok); }
+    .status .warn { color: var(--warn); }
+
+    .empty {
+      min-height: 58vh;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: var(--muted);
+      border: 1px dashed #bac4d4;
+      border-radius: 8px;
+      background: var(--paper);
+      padding: 34px;
+    }
+
+    .empty b {
+      display: block;
+      color: var(--ink);
+      font-size: 24px;
+      margin-bottom: 10px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .page-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+
+    .preview {
+      background: #e9edf4;
+      aspect-ratio: 1.414 / 1;
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+      border-bottom: 1px solid var(--line);
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: white;
+    }
+
+    .fields {
+      padding: 13px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .row-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .field-row {
+      display: grid;
+      grid-template-columns: 1.1fr 1.1fr .75fr .8fr;
+      gap: 8px;
+      align-items: start;
+    }
+
+    .order-number-field { grid-column: span 2; }
+
+    .custom-prefix { margin-top: 6px; }
+
+    label {
+      display: grid;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    input[type="text"],
+    select {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      padding: 7px 9px;
+      color: var(--ink);
+      font: inherit;
+      font-size: 15px;
+      background: #fff;
+    }
+
+    .filename {
+      min-height: 36px;
+      padding: 8px 9px;
+      border-radius: 7px;
+      background: #f4f7f8;
+      color: var(--accent);
+      font-size: 14px;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: rgba(23, 32, 42, .58);
+    }
+
+    .modal[hidden] {
+      display: none;
+    }
+
+    .modal-panel {
+      width: min(1500px, 96vw);
+      max-height: 92vh;
+      overflow: auto;
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: 0 18px 60px rgba(0, 0, 0, .28);
+    }
+
+    .modal-head,
+    .modal-actions {
+      position: sticky;
+      z-index: 1;
+      background: var(--paper);
+      padding: 16px 20px;
+    }
+
+    .modal-head {
+      top: 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .modal-head h2 {
+      margin: 0 0 5px;
+      font-size: 20px;
+    }
+
+    .modal-head p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .duplicate-groups {
+      display: grid;
+      gap: 22px;
+      padding: 20px;
+    }
+
+    .duplicate-group h3 {
+      margin: 0 0 9px;
+      color: var(--accent);
+      font-size: 15px;
+      overflow-wrap: anywhere;
+    }
+
+    .duplicate-options {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 12px;
+    }
+
+    .duplicate-option {
+      display: grid;
+      grid-template-columns: 22px 1fr;
+      gap: 10px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--ink);
+      cursor: pointer;
+    }
+
+    .duplicate-option:has(input:checked) {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 1px var(--accent);
+    }
+
+    .duplicate-option input {
+      width: 18px;
+      height: 18px;
+      margin: 3px 0 0;
+      accent-color: var(--accent);
+    }
+
+    .duplicate-option img {
+      width: 100%;
+      aspect-ratio: 1.414 / 1;
+      object-fit: fill;
+      display: block;
+      border: 1px solid var(--line);
+      background: white;
+    }
+
+    .duplicate-preview-stack {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 6px;
+    }
+
+    .duplicate-page {
+      display: block;
+      margin-top: 7px;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .modal-actions {
+      bottom: 0;
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      border-top: 1px solid var(--line);
+    }
+
+    @media (max-width: 720px) {
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .grid { grid-template-columns: 1fr; }
+      .field-row { grid-template-columns: 1fr 1fr; }
+      .order-number-field { grid-column: span 1; }
+
+      .actions {
+        justify-content: flex-start;
+      }
+
+      main { padding: 14px; }
+      .modal { padding: 10px; }
+      .duplicate-options { grid-template-columns: 1fr; }
+    }
+
+    @media (min-width: 721px) and (max-width: 1000px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="topbar">
+      <h1>発注書PDF分割02</h1>
+      <div class="actions">
+        <label class="file-button" for="pdfFile">PDFを選ぶ</label>
+        <input id="pdfFile" type="file" accept="application/pdf" />
+        <button id="saveFolderBtn" class="primary" type="button" disabled>フォルダへ一括保存</button>
+        <button id="zipBtn" class="secondary" type="button" disabled>ZIPで保存</button>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div id="status" class="status">
+      <span>PDFを選ぶとページごとにプレビューされます。</span>
+      <span></span>
+    </div>
+    <section id="pages" class="grid" hidden></section>
+    <section id="empty" class="empty">
+      <div>
+        <b>PDFをここから分割できます</b>
+        <span>プレビューを見ながらファイル名を手入力し、ページごとに保存できます。</span>
+      </div>
+    </section>
+  </main>
+
+  <div id="duplicateModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="duplicateTitle" hidden>
+    <div class="modal-panel">
+      <div class="modal-head">
+        <h2 id="duplicateTitle">同じファイル名があります</h2>
+        <p>プレビューを比較し、保存するページにチェックを入れてください。複数選ぶと末尾に (2)、(3) が付きます。</p>
+      </div>
+      <div id="duplicateGroups" class="duplicate-groups"></div>
+      <div class="modal-actions">
+        <button id="duplicateCancelBtn" type="button">キャンセル</button>
+        <button id="duplicateConfirmBtn" class="primary" type="button">選択したページを保存</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs';
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
+
+    const fileInput = document.getElementById('pdfFile');
+    const saveFolderBtn = document.getElementById('saveFolderBtn');
+    const zipBtn = document.getElementById('zipBtn');
+    const pagesEl = document.getElementById('pages');
+    const emptyEl = document.getElementById('empty');
+    const statusEl = document.getElementById('status');
+    const duplicateModal = document.getElementById('duplicateModal');
+    const duplicateGroupsEl = document.getElementById('duplicateGroups');
+    const duplicateCancelBtn = document.getElementById('duplicateCancelBtn');
+    const duplicateConfirmBtn = document.getElementById('duplicateConfirmBtn');
+
+    let sourceBytes = null;
+    let pdfDoc = null;
+    let pageCount = 0;
+
+    const invalidFileChars = /[\\/:*?"<>|]/g;
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      }[char]));
+    }
+
+    function setStatus(message, detail = '', kind = '') {
+      statusEl.innerHTML = `<span>${escapeHtml(message)}</span><span class="${kind}">${escapeHtml(detail)}</span>`;
+    }
+
+    function cleanNamePart(value) {
+      return value.trim().replace(invalidFileChars, '').replace(/\s+/g, '');
+    }
+
+    function getPageRows() {
+      return [...pagesEl.querySelectorAll('.page-card')].map(card => ({
+        index: Number(card.dataset.index),
+        productPrefix: card.querySelector('[data-field="product-prefix"]').value,
+        customPrefix: card.querySelector('[data-field="custom-prefix"]').value,
+        productNumber: card.querySelector('[data-field="product-number"]').value,
+        productSuffix: card.querySelector('[data-field="product-suffix"]').value,
+        orderPrefix: card.querySelector('[data-field="order-prefix"]').value,
+        orderNumber: card.querySelector('[data-field="order-number"]').value,
+        orderSuffix: card.querySelector('[data-field="order-suffix"]').value,
+        mergePage: card.querySelector('[data-field="merge-page"]').value.trim(),
+        fileNameEl: card.querySelector('[data-role="filename"]'),
+      }));
+    }
+
+    function buildOrder(prefix, number, suffix) {
+      return `${prefix}${cleanNamePart(number)}${suffix}`;
+    }
+
+    function buildProduct(prefix, customPrefix, number, suffix) {
+      const selectedPrefix = prefix || cleanNamePart(customPrefix);
+      return `${selectedPrefix}${cleanNamePart(number)}${suffix === 'a' ? 'a' : ''}`;
+    }
+
+    function makeFileName(row) {
+      const product = buildProduct(row.productPrefix, row.customPrefix, row.productNumber, row.productSuffix);
+      const order = buildOrder(row.orderPrefix, row.orderNumber, row.orderSuffix);
+      const base = `${product}${order}`;
+      return base ? `${base}.pdf` : `page-${String(row.index + 1).padStart(2, '0')}.pdf`;
+    }
+
+    function updateFileNames() {
+      getPageRows().forEach(row => {
+        row.fileNameEl.textContent = makeFileName(row);
+      });
+    }
+
+    async function renderPreview(page, canvas) {
+      const viewport = page.getViewport({ scale: 1.7 });
+      const context = canvas.getContext('2d');
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height / 2);
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: context, viewport }).promise;
+    }
+
+    function createCard(index) {
+      const card = document.createElement('article');
+      card.className = 'page-card';
+      card.dataset.index = String(index);
+      card.innerHTML = `
+        <div class="preview"><canvas aria-label="${index + 1}ページ目のプレビュー"></canvas></div>
+        <div class="fields">
+          <div class="row-head">
+            <span>${index + 1}ページ目</span>
+            <span>手入力</span>
+          </div>
+          <div class="field-row">
+            <label>品番英字
+              <select data-field="product-prefix">
+                <option value="pm">pm</option>
+                <option value="ey">ey</option>
+                <option value="fo">fo</option>
+                <option value="gn">gn</option>
+                <option value="ru">ru</option>
+                <option value="tu">tu</option>
+                <option value="">手入力</option>
+              </select>
+              <input class="custom-prefix" type="text" data-field="custom-prefix" placeholder="英字を入力" autocomplete="off" hidden disabled>
+            </label>
+            <label>品番数字
+              <input type="text" data-field="product-number" placeholder="150" inputmode="numeric" autocomplete="off">
+            </label>
+            <label>品番末尾
+              <select data-field="product-suffix">
+                <option value="">なし</option>
+                <option value="a">a</option>
+              </select>
+            </label>
+            <label>結合時ページ
+              <input type="number" data-field="merge-page" min="1" max="2" step="1" placeholder="空欄" inputmode="numeric">
+            </label>
+            <label>文言
+              <select data-field="order-prefix">
+                <option value="ﾘﾋﾟｰﾄ">ﾘﾋﾟｰﾄ</option>
+                <option value="初回">初回</option>
+              </select>
+            </label>
+            <label class="order-number-field">番号
+              <input type="text" data-field="order-number" placeholder="5 または ①-2" autocomplete="off">
+            </label>
+            <label>末尾文言
+              <select data-field="order-suffix">
+                <option value="">なし</option>
+                <option value="回目">回目</option>
+              </select>
+            </label>
+          </div>
+          <div class="filename" data-role="filename">page-${String(index + 1).padStart(2, '0')}.pdf</div>
+        </div>
+      `;
+      const prefixSelect = card.querySelector('[data-field="product-prefix"]');
+      const customPrefix = card.querySelector('[data-field="custom-prefix"]');
+      prefixSelect.addEventListener('change', () => {
+        const useCustom = prefixSelect.value === '';
+        customPrefix.hidden = !useCustom;
+        customPrefix.disabled = !useCustom;
+        if (useCustom) customPrefix.focus();
+        updateFileNames();
+      });
+      card.addEventListener('input', updateFileNames);
+      card.addEventListener('change', updateFileNames);
+      return card;
+    }
+
+    async function loadPdf(file) {
+      sourceBytes = new Uint8Array(await file.arrayBuffer());
+      pdfDoc = await pdfjsLib.getDocument({ data: sourceBytes.slice() }).promise;
+      pageCount = pdfDoc.numPages;
+      pagesEl.innerHTML = '';
+      emptyEl.hidden = true;
+      pagesEl.hidden = false;
+      setStatus(`${file.name} を読み込みました。`, `${pageCount}ページ`, 'ok');
+
+      for (let index = 0; index < pageCount; index += 1) {
+        const card = createCard(index);
+        pagesEl.appendChild(card);
+        const page = await pdfDoc.getPage(index + 1);
+        await renderPreview(page, card.querySelector('canvas'));
+      }
+
+      saveFolderBtn.disabled = false;
+      zipBtn.disabled = false;
+      updateFileNames();
+    }
+
+    async function buildPdf(pageIndices) {
+      const srcPdf = await PDFLib.PDFDocument.load(sourceBytes);
+      const outPdf = await PDFLib.PDFDocument.create();
+      const pages = await outPdf.copyPages(srcPdf, pageIndices);
+      pages.forEach(page => outPdf.addPage(page));
+      return await outPdf.save();
+    }
+
+    function groupItemsByName(items) {
+      const groups = new Map();
+      items.forEach(item => {
+        if (!groups.has(item.baseName)) groups.set(item.baseName, []);
+        groups.get(item.baseName).push(item);
+      });
+      return groups;
+    }
+
+    function buildSaveUnits(rows) {
+      const rowGroups = new Map();
+      rows.forEach(row => {
+        const baseName = makeFileName(row);
+        if (!rowGroups.has(baseName)) rowGroups.set(baseName, []);
+        rowGroups.get(baseName).push({ ...row, baseName });
+      });
+
+      const units = [];
+      rowGroups.forEach(group => {
+        const mergeRows = group.filter(row => row.mergePage !== '');
+        const singleRows = group.filter(row => row.mergePage === '');
+
+        if (mergeRows.length) {
+          const sorted = [...mergeRows].sort((a, b) => Number(a.mergePage) - Number(b.mergePage));
+          const validPair = sorted.length === 2 && sorted[0].mergePage === '1' && sorted[1].mergePage === '2';
+          if (!validPair) {
+            const pages = mergeRows.map(row => row.index + 1).join(', ');
+            throw new Error(`${pages}ページ目の結合時ページは、同じファイル名で「1」と「2」を1件ずつ入力してください。`);
+          }
+          units.push({
+            id: `merge-${sorted.map(row => row.index).join('-')}`,
+            baseName: sorted[0].baseName,
+            pageIndices: sorted.map(row => row.index),
+            previewIndices: sorted.map(row => row.index),
+            label: `${sorted[0].index + 1}ページ目 + ${sorted[1].index + 1}ページ目（結合）`,
+          });
+        }
+
+        singleRows.forEach(row => {
+          units.push({
+            id: `page-${row.index}`,
+            baseName: row.baseName,
+            pageIndices: [row.index],
+            previewIndices: [row.index],
+            label: `${row.index + 1}ページ目`,
+          });
+        });
+      });
+
+      return units.sort((a, b) => Math.min(...a.pageIndices) - Math.min(...b.pageIndices));
+    }
+
+    function addCopyNumber(name, number) {
+      return name.toLowerCase().endsWith('.pdf')
+        ? `${name.slice(0, -4)}(${number}).pdf`
+        : `${name}(${number})`;
+    }
+
+    function openDuplicateDialog(duplicateGroups) {
+      duplicateGroupsEl.replaceChildren();
+
+      duplicateGroups.forEach(group => {
+        const section = document.createElement('section');
+        section.className = 'duplicate-group';
+
+        const title = document.createElement('h3');
+        title.textContent = group[0].baseName;
+        section.appendChild(title);
+
+        const options = document.createElement('div');
+        options.className = 'duplicate-options';
+
+        group.forEach(unit => {
+          const option = document.createElement('label');
+          option.className = 'duplicate-option';
+
+          const checkbox = document.createElement('input');
+          checkbox.type = 'checkbox';
+          checkbox.value = unit.id;
+          checkbox.checked = true;
+          checkbox.setAttribute('aria-label', `${unit.label}を保存`);
+
+          const content = document.createElement('span');
+          const previews = document.createElement('span');
+          previews.className = 'duplicate-preview-stack';
+          unit.previewIndices.forEach(index => {
+            const image = document.createElement('img');
+            const sourceCanvas = pagesEl.querySelector(`.page-card[data-index="${index}"] canvas`);
+            image.src = sourceCanvas.toDataURL('image/jpeg', .9);
+            image.alt = `${index + 1}ページ目の上半分`;
+            previews.appendChild(image);
+          });
+
+          const pageLabel = document.createElement('span');
+          pageLabel.className = 'duplicate-page';
+          pageLabel.textContent = unit.label;
+
+          content.append(previews, pageLabel);
+          option.append(checkbox, content);
+          options.appendChild(option);
+        });
+
+        section.appendChild(options);
+        duplicateGroupsEl.appendChild(section);
+      });
+
+      duplicateModal.hidden = false;
+      duplicateConfirmBtn.focus();
+
+      return new Promise(resolve => {
+        const finish = value => {
+          duplicateModal.hidden = true;
+          document.removeEventListener('keydown', handleKeydown);
+          resolve(value);
+        };
+        const handleKeydown = event => {
+          if (event.key === 'Escape') finish(null);
+        };
+
+        duplicateCancelBtn.onclick = () => finish(null);
+        duplicateConfirmBtn.onclick = () => {
+          const selected = new Set(
+            [...duplicateGroupsEl.querySelectorAll('input:checked')].map(input => input.value)
+          );
+          finish(selected);
+        };
+        duplicateModal.onclick = event => {
+          if (event.target === duplicateModal) finish(null);
+        };
+        document.addEventListener('keydown', handleKeydown);
+      });
+    }
+
+    async function prepareUnitsForSave() {
+      const rows = getPageRows();
+      const units = buildSaveUnits(rows);
+      const groups = groupItemsByName(units);
+      const duplicateGroups = [...groups.values()].filter(group => group.length > 1);
+      let selectedDuplicates = null;
+
+      if (duplicateGroups.length) {
+        selectedDuplicates = await openDuplicateDialog(duplicateGroups);
+        if (selectedDuplicates === null) return null;
+      }
+
+      const includedUnits = units.filter(unit => {
+        const isDuplicate = groups.get(unit.baseName).length > 1;
+        return !isDuplicate || selectedDuplicates.has(unit.id);
+      });
+
+      const nameCounts = new Map();
+      const usedNames = new Set();
+      return includedUnits.map(unit => {
+        const baseName = unit.baseName;
+        let number = (nameCounts.get(baseName) || 0) + 1;
+        let saveName = number === 1 ? baseName : addCopyNumber(baseName, number);
+        while (usedNames.has(saveName)) {
+          number += 1;
+          saveName = addCopyNumber(baseName, number);
+        }
+        nameCounts.set(baseName, number);
+        usedNames.add(saveName);
+        return { ...unit, saveName };
+      });
+    }
+
+    async function saveToFolder() {
+      try {
+        if (!('showDirectoryPicker' in window)) {
+          throw new Error('このブラウザではフォルダ保存が使えません。ZIP保存を使ってください。');
+        }
+        const units = await prepareUnitsForSave();
+        if (units === null) return;
+        if (!units.length) throw new Error('保存するページが選択されていません。');
+        const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
+        for (const unit of units) {
+          const bytes = await buildPdf(unit.pageIndices);
+          const handle = await dir.getFileHandle(unit.saveName, { create: true });
+          const writable = await handle.createWritable();
+          await writable.write(bytes);
+          await writable.close();
+        }
+        setStatus('PDFを保存しました。', `${units.length}ファイル`, 'ok');
+      } catch (error) {
+        setStatus('保存できませんでした。', error.message, 'warn');
+      }
+    }
+
+    async function saveZip() {
+      try {
+        const units = await prepareUnitsForSave();
+        if (units === null) return;
+        if (!units.length) throw new Error('保存するページが選択されていません。');
+        const zip = new JSZip();
+        for (const unit of units) {
+          const bytes = await buildPdf(unit.pageIndices);
+          zip.file(unit.saveName, bytes);
+        }
+        const blob = await zip.generateAsync({ type: 'blob' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = '分割PDF.zip';
+        link.click();
+        URL.revokeObjectURL(link.href);
+        setStatus('ZIPを作成しました。', `${units.length}ファイル`, 'ok');
+      } catch (error) {
+        setStatus('ZIPを作れませんでした。', error.message, 'warn');
+      }
+    }
+
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files?.[0];
+      if (!file) return;
+      try {
+        setStatus('PDFを読み込んでいます。', file.name);
+        await loadPdf(file);
+      } catch (error) {
+        console.error(error);
+        setStatus('PDFを読み込めませんでした。', error.message, 'warn');
+      }
+    });
+
+    saveFolderBtn.addEventListener('click', saveToFolder);
+    zipBtn.addEventListener('click', saveZip);
+  </script>
+</body>
+</html>
