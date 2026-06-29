@@ -2,11 +2,264 @@
 <html lang="ja">
 <head>
   <meta charset="utf-8">
-  <title>発注書PDF分割アプリ</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>発注書PDF分割</title>
+  <style>
+    :root {
+      --ink: #17202a;
+      --muted: #687386;
+      --line: #d9dee8;
+      --paper: #ffffff;
+      --page: #f5f7fb;
+      --accent: #176b87;
+      --accent-2: #b85c38;
+      --shadow: 0 8px 24px rgba(30, 44, 64, .10);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--ink);
+      background: var(--page);
+      font-family: "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+    }
+
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: rgba(255, 255, 255, .96);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(8px);
+    }
+
+    .bar {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 18px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .title {
+      margin: 0;
+      font-size: 21px;
+      line-height: 1.2;
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 28px 24px 44px;
+    }
+
+    .status {
+      min-height: 46px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: var(--paper);
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      padding: 12px 14px;
+      font-size: 15px;
+      line-height: 1.6;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, .03);
+    }
+
+    .apps {
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .app {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 248px;
+    }
+
+    .app-preview {
+      min-height: 92px;
+      background: #e9edf4;
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      place-items: center;
+      padding: 18px;
+    }
+
+    .preview-sheet {
+      width: min(260px, 82%);
+      height: 58px;
+      border: 1px solid #c8d0dc;
+      border-radius: 4px;
+      background: #fff;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      padding: 10px;
+      box-shadow: 0 4px 12px rgba(23, 32, 42, .08);
+    }
+
+    .preview-line {
+      border-radius: 3px;
+      background: #dfe5ee;
+    }
+
+    .preview-line.strong {
+      background: #b8c8d5;
+    }
+
+    .app-body {
+      padding: 18px 20px 20px;
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .app h2 {
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+
+    .app p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+
+    .actions {
+      margin-top: auto;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    a.button {
+      min-height: 40px;
+      border: 1px solid var(--accent);
+      border-radius: 7px;
+      padding: 8px 13px;
+      color: #fff;
+      background: var(--accent);
+      font: inherit;
+      font-weight: 700;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, .03);
+    }
+
+    a.button.secondary {
+      border-color: var(--accent-2);
+      background: var(--accent-2);
+    }
+
+    a.button:focus-visible {
+      outline: 3px solid rgba(23, 107, 135, .25);
+      outline-offset: 2px;
+    }
+
+    .note {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    @media (max-width: 760px) {
+      .bar {
+        padding: 16px;
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      main {
+        padding: 18px 16px 32px;
+      }
+
+      .apps {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
 </head>
 <body>
-  <h1>発注書PDF分割アプリ</h1>
-  <p><a href="./pdf-order-splitter-app/">発注書PDF分割</a></p>
-  <p><a href="./pdf-order-splitter-app-02/">発注書PDF分割02</a></p>
+  <header>
+    <div class="bar">
+      <h1 class="title">発注書PDF分割</h1>
+    </div>
+  </header>
+
+  <main>
+    <div class="status">
+      使用する形式に合わせてアプリを選んでください。PDFは各PCのブラウザ上で処理します。
+    </div>
+
+    <section class="apps" aria-label="アプリ一覧">
+      <article class="app">
+        <div class="app-preview" aria-hidden="true">
+          <div class="preview-sheet">
+            <span class="preview-line strong"></span>
+            <span class="preview-line"></span>
+            <span class="preview-line"></span>
+            <span class="preview-line"></span>
+            <span class="preview-line strong"></span>
+            <span class="preview-line"></span>
+          </div>
+        </div>
+        <div class="app-body">
+          <h2>発注書PDF分割</h2>
+          <p>画像PDFを読み取り、品番と発注書Noを確認しながら分割保存するアプリです。</p>
+          <div class="actions">
+            <a class="button" href="./pdf-order-splitter-app/">開く</a>
+          </div>
+        </div>
+      </article>
+
+      <article class="app">
+        <div class="app-preview" aria-hidden="true">
+          <div class="preview-sheet">
+            <span class="preview-line strong"></span>
+            <span class="preview-line"></span>
+            <span class="preview-line"></span>
+            <span class="preview-line"></span>
+            <span class="preview-line strong"></span>
+            <span class="preview-line"></span>
+          </div>
+        </div>
+        <div class="app-body">
+          <h2>発注書PDF分割02</h2>
+          <p>OCRなしの手入力専用アプリです。必要に応じて同じファイル名のページ結合もできます。</p>
+          <div class="actions">
+            <a class="button secondary" href="./pdf-order-splitter-app-02/">開く</a>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <p class="note">
+      発注書PDFなどの実データはGitHubにアップロードせず、アプリ画面から各PC内のファイルを選択して使用してください。
+    </p>
+  </main>
 </body>
 </html>
